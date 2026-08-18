@@ -4,3 +4,4 @@ feedparser
 Flask
 PyNaCl
 aiohttp
+static-ffmpeg
