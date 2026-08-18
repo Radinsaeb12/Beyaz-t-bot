@@ -10,6 +10,13 @@ import aiohttp
 from flask import Flask
 from threading import Thread
 
+# --- Render Environment Variable'dan cookies.txt oluşturma ---
+YOUTUBE_COOKIES_ENV = os.getenv("YOUTUBE_COOKIES")
+if YOUTUBE_COOKIES_ENV:
+    with open("cookies.txt", "w", encoding="utf-8") as f:
+        f.write(YOUTUBE_COOKIES_ENV)
+    print("✅ cookies.txt çevre değişkeninden başarıyla yüklendi!")
+
 # FFmpeg Otomatik Yükleyici Entegrasyonu
 try:
     import static_ffmpeg
@@ -142,7 +149,7 @@ class SetupBot(commands.Bot):
 
 bot = SetupBot()
 
-# --- 4. MÜZİK AYARLARI VE KOMUTLARI (Güncellenmiş yt-dlp Ayarları) ---
+# --- 4. MÜZİK AYARLARI VE KOMUTLARI (Cookies Entegreli) ---
 YTDL_OPTIONS = {
     'format': 'bestaudio/best',
     'extractaudio': True,
@@ -155,6 +162,7 @@ YTDL_OPTIONS = {
     'no_warnings': True,
     'default_search': 'ytsearch',
     'source_address': '0.0.0.0',
+    'cookiefile': 'cookies.txt' if os.path.exists("cookies.txt") else None,
     'extractor_args': {
         'youtube': {
             'player_client': ['ios', 'mweb'],
