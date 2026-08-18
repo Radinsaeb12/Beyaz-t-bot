@@ -64,14 +64,8 @@ class SetupBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        guild = discord.Object(id=1536741477508714541)
-        # Global komutları temizle (Çift görünmeyi engeller)
-        self.tree.clear_commands(guild=None)
-        await self.tree.sync(guild=None)
-        
-        # Sadece senin sunucuna kaydet
-        self.tree.copy_global_to(guild=guild)
-        await self.tree.sync(guild=guild)
+        # Komutları tüm sunucular için genel (global) olarak senkronize eder
+        await self.tree.sync()
 
 bot = SetupBot()
 
