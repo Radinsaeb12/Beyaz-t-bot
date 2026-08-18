@@ -51,7 +51,7 @@ def save_db(data):
 SERVER_DATA = load_db()
 
 # --- DISCORD AYARLARI ---
-TOKEN = os.getenv("DISCORD_TOKEN")  # Token'ı çevre değişkeninden çeker (Güvenli Yöntem)
+TOKEN = os.getenv("DISCORD_TOKEN")  # Token'ı çevre değişkeninden çeker
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -64,7 +64,10 @@ class SetupBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        await self.tree.sync()
+        # Komutları doğrudan senin sunucuna anında kaydeder
+        guild = discord.Object(id=1536741477508714541)
+        self.tree.copy_global_to(guild=guild)
+        await self.tree.sync(guild=guild)
 
 bot = SetupBot()
 
