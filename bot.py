@@ -543,9 +543,13 @@ async def on_message(message):
 async def on_ready():
     print(f"[{bot.user.name}] Başarıyla başlatıldı. Tüm modüller aktif!")
     load_turkish_words()
+    
+    # 7/24 Sunucuyu ve döngüleri başlat
     keep_alive()
-    check_youtube.start()
-    update_member_count.start()
+    if not check_youtube.is_running():
+        check_youtube.start()
+    if not update_member_count.is_running():
+        update_member_count.start()
 
 if __name__ == "__main__":
     bot.run(TOKEN)
