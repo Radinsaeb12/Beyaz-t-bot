@@ -25,19 +25,20 @@ def keep_alive():
     t.daemon = True
     t.start()
 
-# --- 2. TÜRKÇE KELİME LİSTESİ YÜKLEME (Kelime Türetme İçin) ---
+# --- 2. TÜRKÇE KELİME LİSTESİ YÜKLEME ---
 TURKISH_WORDS = set()
 
 def load_turkish_words():
     global TURKISH_WORDS
     try:
         url = "https://raw.githubusercontent.com/mertkahyao/turkish-word-list/master/words.txt"
-        req = urllib.request.urlopen(url)
-        words_data = req.read().decode('utf-8').splitlines()
-        TURKISH_WORDS = set(w.strip().lower() for w in words_data if w.strip())
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            words_data = response.read().decode('utf-8').splitlines()
+            TURKISH_WORDS = set(w.strip().lower() for w in words_data if w.strip())
         print(f"✅ {len(TURKISH_WORDS)} adet Türkçe kelime hafızaya yüklendi!")
     except Exception as e:
-        print(f"⚠️ Kelime listesi yüklenirken hata oluştu: {e}")
+        print(f"⚠️ Kelime listesi çekilemedi: {e}")
 
 # --- 3. KALICI VERİTABANI (JSON) SİSTEMİ ---
 DB_FILE = "db.json"
@@ -189,7 +190,7 @@ async def sunucu_kur(interaction: discord.Interaction):
     cat_admin = await guild.create_category("🛑 │ YÖNETİM ODALARI")
     await guild.create_text_channel("yönetim-sohbet", category=cat_admin)
 
-    # Destek Kategorisi & Otomatik Ticket Kanalı
+    # Destek Merkezi
     cat_support = await guild.create_category("🎫 │ DESTEK MERKEZİ")
     c_ticket = await guild.create_text_channel("🎫│destek-talebi", category=cat_support, overwrites=read_only)
     embed = discord.Embed(
@@ -242,7 +243,7 @@ async def sunucu_kur(interaction: discord.Interaction):
         except:
             pass
 
-    await interaction.channel.send("✅ **Bütün eski kanallar ve roller silindi! Ticket kanalı dahil sıfırdan kurulum tamamlandı.**")
+    await interaction.channel.send("✅ **Bütün eski kanallar ve roller silindi! Sıfırdan kurulum tamamlandı.**")
 
 # --- YOUTUBE KURULUM KOMUTU ---
 @bot.tree.command(name="youtube-kur", description="YouTube kanal bildirimi için kanal ID'si ve duyuru kanalını ayarlar.")
@@ -420,7 +421,9 @@ async def on_voice_state_update(member, before, after):
 # Oyun Değişkenleri
 counting_number = 0
 last_counter_user = None
+
 last_word_letter = ""
+last_word_user = None
 used_words = set()
 
 AUTO_RESPONSES = {
@@ -432,7 +435,7 @@ AUTO_RESPONSES = {
 
 @bot.event
 async def on_message(message):
-    global counting_number, last_counter_user, last_word_letter, used_words
+    global counting_number, last_counter_user, last_word_letter, last_word_user, used_words
 
     if message.author.bot:
         return
@@ -444,7 +447,7 @@ async def on_message(message):
         await message.channel.send(AUTO_RESPONSES[content_lower])
         return
 
-    # Sayı Sayma Oyunu (Sıfırlama yok, hatalı mesajı siler)
+    # Sayı Sayma Oyunu
     if message.channel.name == "sayi-sayma":
         if message.content.isdigit():
             val = int(message.content)
@@ -474,11 +477,22 @@ async def on_message(message):
             await asyncio.sleep(4)
             await msg.delete()
 
-    # Kelime Türetme Oyunu (Gerçek Türkçe Kelime Kontrolü)
+    # Kelime Türetme Oyunu
     elif message.channel.name == "kelime-turetme":
         word = content_lower
 
-        # Kelime Türkçe sözlükte var mı?
+        # 1. Üst üste yazma kontrolü
+        if message.author == last_word_user:
+            try:
+                await message.delete()
+            except:
+                pass
+            msg = await message.channel.send(f"⚠️ {message.author.mention}, üst üste kelime yazamazsın! Başkasının yazmasını bekle.")
+            await asyncio.sleep(4)
+            await msg.delete()
+            return
+
+        # 2. Türkçe Sözlük Kontrolü
         if TURKISH_WORDS and word not in TURKISH_WORDS:
             try:
                 await message.delete()
@@ -489,7 +503,7 @@ async def on_message(message):
             await msg.delete()
             return
 
-        # Daha önce kullanıldı mı?
+        # 3. Kullanılmış Kelime Kontrolü
         if word in used_words:
             try:
                 await message.delete()
@@ -500,13 +514,15 @@ async def on_message(message):
             await msg.delete()
             return
 
-        # Harf uyumu kontrolü
+        # 4. İlk Kelime veya Harf Uyumu
         if last_word_letter == "":
             last_word_letter = word[-1]
+            last_word_user = message.author
             used_words.add(word)
             await message.add_reaction("✅")
         elif word.startswith(last_word_letter):
             last_word_letter = word[-1]
+            last_word_user = message.author
             used_words.add(word)
             await message.add_reaction("✅")
             info_msg = await message.channel.send(f"🔤 Sıradaki kelime **'{last_word_letter.upper()}'** harfi ile başlamalı!")
@@ -526,7 +542,7 @@ async def on_message(message):
 @bot.event
 async def on_ready():
     print(f"[{bot.user.name}] Başarıyla başlatıldı. Tüm modüller aktif!")
-    load_turkish_words() # Türkçe sözlüğü hafızaya çeker
+    load_turkish_words()
     keep_alive()
     check_youtube.start()
     update_member_count.start()
