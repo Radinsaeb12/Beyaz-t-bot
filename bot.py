@@ -151,7 +151,7 @@ bot = SetupBot()
 
 # --- 4. MÜZİK AYARLARI VE KOMUTLARI (Cookies Entegreli) ---
 YTDL_OPTIONS = {
-    'format': 'bestaudio[ext=m4a]/bestaudio/best',
+    'format': 'bestaudio/best',
     'restrictfilenames': True,
     'noplaylist': True,
     'nocheckcertificate': True,
@@ -163,7 +163,7 @@ YTDL_OPTIONS = {
     'cookiefile': 'cookies.txt' if os.path.exists("cookies.txt") else None,
     'extractor_args': {
         'youtube': {
-            'player_client': ['android', 'web'],
+            'player_client': ['web'],
         }
     }
 }
@@ -201,12 +201,26 @@ async def oynat(interaction: discord.Interaction, sarkici_veya_url: str):
         loop = asyncio.get_event_loop()
         search_query = query if query.startswith("http") else f"ytsearch:{query}"
 
-        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(search_query, download=False))
-        
+        try:
+            data = await loop.run_in_executor(None, lambda: ytdl.extract_info(search_query, download=False))
+        except yt_dlp.utils.DownloadError as e:
+            print(f"⚠️ İlk deneme başarısız: {e}")
+            if "Requested format is not available" in str(e):
+                fallback_opts = dict(YTDL_OPTIONS)
+                fallback_opts['format'] = 'best'
+                fallback_ytdl = yt_dlp.YoutubeDL(fallback_opts)
+                data = await loop.run_in_executor(None, lambda: fallback_ytdl.extract_info(search_query, download=False))
+            else:
+                raise
+
         if 'entries' in data and len(data['entries']) > 0:
             video_data = data['entries'][0]
         else:
             video_data = data
+
+        print(f"🔎 video_data anahtarları: {list(video_data.keys())}")
+        print(f"🔎 url alanı: {video_data.get('url')}")
+        print(f"🔎 formats sayısı: {len(video_data.get('formats', []))}")
 
         audio_url = video_data['url']
         title = video_data.get('title', 'Bilinmeyen Şarkı')
