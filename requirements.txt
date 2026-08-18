@@ -1,5 +1,6 @@
-discord.py
+discord.py>=2.5.0
 yt-dlp
 feedparser
 Flask
 PyNaCl
+aiohttp
