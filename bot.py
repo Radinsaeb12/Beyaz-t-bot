@@ -25,13 +25,14 @@ def keep_alive():
     t.daemon = True
     t.start()
 
-# --- 2. TÜRKÇE KELİME LİSTESİ YÜKLEME ---
+# --- 2. TÜRKÇE KELİME LİSTESİ YÜKLEME (GÜNCELLENDİ) ---
 TURKISH_WORDS = set()
 
 def load_turkish_words():
     global TURKISH_WORDS
     try:
-        url = "https://raw.githubusercontent.com/mertkahyao/turkish-word-list/master/words.txt"
+        # Çalışan güncel Türkçe kelime listesi URL'si
+        url = "https://raw.githubusercontent.com/kelimeler/turkce-kelimeler/master/turkce-kelimeler.txt"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req) as response:
             words_data = response.read().decode('utf-8').splitlines()
@@ -544,7 +545,7 @@ async def on_ready():
     print(f"[{bot.user.name}] Başarıyla başlatıldı. Tüm modüller aktif!")
     load_turkish_words()
     
-    # 7/24 Sunucuyu ve döngüleri başlat
+    # 7/24 Web sunucusunu ve döngüleri başlat
     keep_alive()
     if not check_youtube.is_running():
         check_youtube.start()
