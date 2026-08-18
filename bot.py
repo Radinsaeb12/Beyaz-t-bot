@@ -142,7 +142,7 @@ class SetupBot(commands.Bot):
 
 bot = SetupBot()
 
-# --- 4. MÜZİK AYARLARI VE KOMUTLARI ---
+# --- 4. MÜZİK AYARLARI VE KOMUTLARI (Güncellenmiş yt-dlp Ayarları) ---
 YTDL_OPTIONS = {
     'format': 'bestaudio/best',
     'extractaudio': True,
@@ -155,7 +155,12 @@ YTDL_OPTIONS = {
     'no_warnings': True,
     'default_search': 'ytsearch',
     'source_address': '0.0.0.0',
-    'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
+    'extractor_args': {
+        'youtube': {
+            'player_client': ['ios', 'mweb'],
+            'skip': ['hls', 'dash']
+        }
+    }
 }
 
 FFMPEG_OPTIONS = {
