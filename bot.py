@@ -64,8 +64,12 @@ class SetupBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        # Komutları doğrudan senin sunucuna anında kaydeder
         guild = discord.Object(id=1536741477508714541)
+        # Global komutları temizle (Çift görünmeyi engeller)
+        self.tree.clear_commands(guild=None)
+        await self.tree.sync(guild=None)
+        
+        # Sadece senin sunucuna kaydet
         self.tree.copy_global_to(guild=guild)
         await self.tree.sync(guild=guild)
 
@@ -349,13 +353,11 @@ async def dur(interaction: discord.Interaction):
 
 @bot.event
 async def on_member_join(member):
-    # Üye Sayısını Anlık Güncelle
     if SERVER_DATA.get("stats_channel_id"):
         ch = member.guild.get_channel(SERVER_DATA["stats_channel_id"])
         if ch:
             await ch.edit(name=f"👥│Üye Sayısı: {member.guild.member_count}")
 
-    # Gelen-Giden Kanalına Mesaj At
     if SERVER_DATA.get("welcome_channel_id"):
         welcome_ch = member.guild.get_channel(SERVER_DATA["welcome_channel_id"])
         if welcome_ch:
@@ -417,7 +419,7 @@ async def on_message(message):
         await message.channel.send(AUTO_RESPONSES[content_lower])
         return
 
-    # Sayı Sayma Oyunu (sayi-sayma kanalı)
+    # Sayı Sayma Oyunu
     if message.channel.name == "sayi-sayma":
         if message.content.isdigit():
             val = int(message.content)
@@ -431,7 +433,7 @@ async def on_message(message):
                 await message.add_reaction("❌")
                 await message.channel.send(f"{message.author.mention} sırayı veya sayıyı bozdu! Sayac 0'landı. 1'den başlayın.")
 
-    # Kelime Türetme Oyunu (kelime-turetme kanalı)
+    # Kelime Türetme Oyunu
     elif message.channel.name == "kelime-turetme":
         word = content_lower
         if last_word_letter == "":
