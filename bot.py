@@ -6,7 +6,7 @@ import yt_dlp
 import feedparser
 import json
 import os
-import urllib.request
+import aiohttp
 from flask import Flask
 from threading import Thread
 
@@ -25,23 +25,25 @@ def keep_alive():
     t.daemon = True
     t.start()
 
-# --- 2. TÜRKÇE KELİME LİSTESİ YÜKLEME (GÜNCELLENDİ) ---
+# --- 2. TÜRKÇE KELİME LİSTESİ YÜKLEME ---
 TURKISH_WORDS = set()
 
-def load_turkish_words():
+async def fetch_turkish_words():
     global TURKISH_WORDS
+    url = "https://raw.githubusercontent.com/kelimeler/turkce-kelimeler/master/turkce-kelimeler.txt"
     try:
-        # Çalışan güncel Türkçe kelime listesi URL'si
-        url = "https://raw.githubusercontent.com/kelimeler/turkce-kelimeler/master/turkce-kelimeler.txt"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req) as response:
-            words_data = response.read().decode('utf-8').splitlines()
-            TURKISH_WORDS = set(w.strip().lower() for w in words_data if w.strip())
-        print(f"✅ {len(TURKISH_WORDS)} adet Türkçe kelime hafızaya yüklendi!")
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status == 200:
+                    text = await response.text()
+                    TURKISH_WORDS = set(w.strip().lower() for w in text.splitlines() if w.strip())
+                    print(f"✅ {len(TURKISH_WORDS)} adet Türkçe kelime yüklendi!")
+                else:
+                    print("⚠️ Kelime listesi indirilemedi, durum kodu:", response.status)
     except Exception as e:
-        print(f"⚠️ Kelime listesi çekilemedi: {e}")
+        print(f"⚠️ Kelime listesi çekilirken hata oluştu: {e}")
 
-# --- 3. KALICI VERİTABANI (JSON) SİSTEMİ ---
+# --- 3. VERİTABANI İŞLEMLERİ ---
 DB_FILE = "db.json"
 
 def load_db():
@@ -55,19 +57,18 @@ def load_db():
             "yt_rss_url": None,
             "last_video_id": None
         }
-        with open(DB_FILE, "w") as f:
-            json.dump(default_data, f)
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(default_data, f, ensure_ascii=False, indent=4)
         return default_data
-    with open(DB_FILE, "r") as f:
+    with open(DB_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
 def save_db(data):
-    with open(DB_FILE, "w") as f:
-        json.dump(data, f, indent=4)
+    with open(DB_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
 SERVER_DATA = load_db()
 
-# --- DISCORD AYARLARI ---
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 intents = discord.Intents.default()
@@ -81,6 +82,7 @@ class SetupBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
+        self.add_view(TicketView())
         await self.tree.sync()
 
 bot = SetupBot()
@@ -108,7 +110,7 @@ FFMPEG_OPTIONS = {
 
 ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
 
-# --- TICKET SİSTEMİ VIEW ---
+# Ticket View
 class TicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -132,203 +134,20 @@ class TicketView(discord.ui.View):
             return
 
         ticket_channel = await guild.create_text_channel(channel_name, overwrites=overwrites)
-        await ticket_channel.send(f"Merhaba {member.mention}, yetkililer kısa süre içinde burada olacaktır. Talebi kapatmak için `/ticket-kapat` komutunu kullanabilirsiniz.")
+        await ticket_channel.send(f"Merhaba {member.mention}, yetkililer kısa süre içinde burada olacaktır.")
         await interaction.response.send_message(f"Destek kanalınız oluşturuldu: {ticket_channel.mention}", ephemeral=True)
 
-# --- SUNUCU KURULUM KOMUTU ---
-@bot.tree.command(name="sunucu-kur", description="HER ŞEYİ SİLER ve sunucuyu sıfırdan kurar.")
-@app_commands.default_permissions(administrator=True)
-async def sunucu_kur(interaction: discord.Interaction):
-    guild = interaction.guild
-    
-    await interaction.response.defer(ephemeral=False)
-    await interaction.followup.send("🧹 **Tüm kanallar ve roller temizleniyor, sıfırdan kurulum başlatılıyor...**")
-
-    for channel in guild.channels:
-        try:
-            await channel.delete()
-            await asyncio.sleep(0.1)
-        except:
-            pass
-
-    for role in guild.roles:
-        if role.name != "@everyone" and not role.managed:
-            try:
-                await role.delete()
-                await asyncio.sleep(0.1)
-            except:
-                pass
-
-    role_settings = [
-        ("👑 | Kurucu", discord.Color.gold()),
-        ("🎬 | YouTuber", discord.Color.red()),
-        ("🛡️ | Yönetici", discord.Color.dark_red()),
-        ("🛠️ | Moderatör", discord.Color.dark_gold()),
-        ("🤖 | Botlar", discord.Color.dark_gray()),
-        ("💎 | Nitro Booster", discord.Color.magenta()),
-        ("⭐ | YouTube Katıl", discord.Color.dark_theme()),
-        ("📺 | Twitch Abonesi", discord.Color.purple()),
-        ("🌟 | VIP Üye", discord.Color.teal()),
-        ("🎮 | Oyuncu", discord.Color.blue()),
-    ]
-    
-    roles = {}
-    for r_name, r_color in role_settings:
-        try:
-            role = await guild.create_role(name=r_name, color=r_color, hoist=True, mentionable=True)
-            roles[r_name] = role
-        except:
-            pass
-
-    everyone = guild.default_role
-
-    read_only = {
-        everyone: discord.PermissionOverwrite(read_messages=True, send_messages=False, connect=False),
-        roles.get("🛠️ | Moderatör", everyone): discord.PermissionOverwrite(send_messages=True)
-    }
-
-    # Yönetim Odaları
-    cat_admin = await guild.create_category("🛑 │ YÖNETİM ODALARI")
-    await guild.create_text_channel("yönetim-sohbet", category=cat_admin)
-
-    # Destek Merkezi
-    cat_support = await guild.create_category("🎫 │ DESTEK MERKEZİ")
-    c_ticket = await guild.create_text_channel("🎫│destek-talebi", category=cat_support, overwrites=read_only)
-    embed = discord.Embed(
-        title="🎫 Destek Sistemi", 
-        description="Aşağıdaki butona tıklayarak yetkili ekibimizle özel bir destek kanalı açabilirsiniz.", 
-        color=discord.Color.blue()
-    )
-    await c_ticket.send(embed=embed, view=TicketView())
-
-    # Bilgilendirme
-    cat_info = await guild.create_category("📢 │ BİLGİLENDİRME")
-    await guild.create_text_channel("📜│kurallar", category=cat_info, overwrites=read_only)
-    await guild.create_text_channel("📢│duyurular", category=cat_info, overwrites=read_only)
-    await guild.create_text_channel("🎬│video-duyuru", category=cat_info, overwrites=read_only)
-    c_welcome = await guild.create_text_channel("👋│gelen-giden", category=cat_info, overwrites=read_only)
-    SERVER_DATA["welcome_channel_id"] = c_welcome.id
-
-    # Sunucu Paneli
-    cat_stats = await guild.create_category("📊 │ SUNUCU PANELİ")
-    c_stats = await guild.create_voice_channel(
-        f"👥│Üye Sayısı: {guild.member_count}", 
-        category=cat_stats, 
-        overwrites={everyone: discord.PermissionOverwrite(connect=False)}
-    )
-    SERVER_DATA["stats_channel_id"] = c_stats.id
-
-    # Sohbet & Oyunlar
-    cat_chat = await guild.create_category("💬 │ SOHBET & OYUN")
-    await guild.create_text_channel("💬│genel-sohbet", category=cat_chat)
-    await guild.create_text_channel("🤖│bot-komut", category=cat_chat)
-    await guild.create_text_channel("sayi-sayma", category=cat_chat)
-    await guild.create_text_channel("kelime-turetme", category=cat_chat)
-
-    # Ses Kanalları
-    cat_voice = await guild.create_category("🔊 │ SES KANALLARI")
-    await guild.create_voice_channel("Genel Sohbet 1", category=cat_voice)
-    await guild.create_voice_channel("🎵 Müzik Odası", category=cat_voice)
-
-    # Özel Odalar
-    cat_temp = await guild.create_category("➕ │ ÖZEL ODALAR")
-    c_create = await guild.create_voice_channel("➕│Oda Oluştur", category=cat_temp)
-    SERVER_DATA["join_to_create_id"] = c_create.id
-    SERVER_DATA["temp_category_id"] = cat_temp.id
-
-    save_db(SERVER_DATA)
-
-    if "👑 | Kurucu" in roles:
-        try:
-            await interaction.user.add_roles(roles["👑 | Kurucu"])
-        except:
-            pass
-
-    await interaction.channel.send("✅ **Bütün eski kanallar ve roller silindi! Sıfırdan kurulum tamamlandı.**")
-
-# --- YOUTUBE KURULUM KOMUTU ---
-@bot.tree.command(name="youtube-kur", description="YouTube kanal bildirimi için kanal ID'si ve duyuru kanalını ayarlar.")
-@app_commands.default_permissions(administrator=True)
-async def youtube_kur(interaction: discord.Interaction, youtube_kanal_id: str, duyuru_kanali: discord.TextChannel):
-    rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={youtube_kanal_id}"
-    
-    SERVER_DATA["yt_rss_url"] = rss_url
-    SERVER_DATA["yt_channel_id"] = duyuru_kanali.id
-    save_db(SERVER_DATA)
-
-    await interaction.response.send_message(
-        f"✅ **YouTube Bildirim Sistemi Aktif Edildi ve Kaydedildi!**\n"
-        f"📌 **Takip Edilen Kanal ID:** `{youtube_kanal_id}`\n"
-        f"📢 **Bildirim Kanalı:** {duyuru_kanali.mention}",
-        ephemeral=True
-    )
-
-# --- TICKET KOMUTLARI ---
-@bot.tree.command(name="ticket-kur", description="Destek talebi (Ticket) butonunu seçilen kanala manuel kurar.")
-@app_commands.default_permissions(administrator=True)
-async def ticket_kur(interaction: discord.Interaction, kanal: discord.TextChannel):
-    embed = discord.Embed(title="🎫 Destek Sistemi", description="Aşağıdaki butona tıklayarak yetkili ekibimizle özel bir destek kanalı açabilirsiniz.", color=discord.Color.blue())
-    await kanal.send(embed=embed, view=TicketView())
-    await interaction.response.send_message(f"✅ Destek paneli {kanal.mention} kanalına kuruldu.", ephemeral=True)
-
-@bot.tree.command(name="ticket-kapat", description="Bulunduğunuz destek kanalını kapatır.")
-async def ticket_kapat(interaction: discord.Interaction):
-    if "ticket-" in interaction.channel.name:
-        await interaction.response.send_message("🔒 Destek kanalı 5 saniye içinde siliniyor...")
-        await asyncio.sleep(5)
-        await interaction.channel.delete()
-    else:
-        await interaction.response.send_message("❌ Bu komut yalnızca ticket kanallarında kullanılabilir.", ephemeral=True)
-
-# --- YOUTUBE DÖNGÜSÜ ---
-@tasks.loop(minutes=3)
-async def check_youtube():
-    if not SERVER_DATA.get("yt_rss_url") or not SERVER_DATA.get("yt_channel_id"):
-        return
-
-    channel = bot.get_channel(SERVER_DATA["yt_channel_id"])
-    if not channel:
-        return
-
-    try:
-        feed = feedparser.parse(SERVER_DATA["yt_rss_url"])
-        if feed.entries:
-            latest = feed.entries[0]
-            v_id = latest.yt_videoid
-            v_url = latest.link
-            v_title = latest.title
-
-            if SERVER_DATA.get("last_video_id") is None:
-                SERVER_DATA["last_video_id"] = v_id
-                save_db(SERVER_DATA)
-                return
-
-            if SERVER_DATA["last_video_id"] != v_id:
-                SERVER_DATA["last_video_id"] = v_id
-                save_db(SERVER_DATA)
-                await channel.send(f"🚨 **YENİ VİDEO YAYINLANDI!** 🚨\n\n**{v_title}**\n{v_url}\n\n@everyone")
-    except Exception as e:
-        print(f"YouTube kontrol hatası: {e}")
-
-# --- ÜYE SAYACI CANLI GÜNCELLEME DÖNGÜSÜ ---
-@tasks.loop(minutes=10)
-async def update_member_count():
-    if SERVER_DATA.get("stats_channel_id"):
-        channel = bot.get_channel(SERVER_DATA["stats_channel_id"])
-        if channel:
-            await channel.edit(name=f"👥│Üye Sayısı: {channel.guild.member_count}")
-
-# --- MÜZİK KOMUTLARI ---
-@bot.tree.command(name="oynat", description="Şarkı adı veya YouTube URL'si ile yüksek kalitede müzik çalar.")
+# Müzik Komutları
+@bot.tree.command(name="oynat", description="Şarkı adı veya YouTube URL'si ile müzik çalar.")
 async def oynat(interaction: discord.Interaction, sarkici_veya_url: str):
     await interaction.response.defer(thinking=True)
 
-    if not interaction.user.voice:
+    if not isinstance(interaction.user, discord.Member) or not interaction.user.voice:
         await interaction.followup.send("❌ Müzik çalabilmem için önce bir **ses kanalına** girmelisin!")
         return
 
     voice_channel = interaction.user.voice.channel
-    voice_client = interaction.guild.voice_client
+    voice_client = interaction.guild.voice_client if interaction.guild else None
 
     try:
         if not voice_client:
@@ -336,7 +155,7 @@ async def oynat(interaction: discord.Interaction, sarkici_veya_url: str):
         elif voice_client.channel != voice_channel:
             await voice_client.move_to(voice_channel)
     except Exception as e:
-        await interaction.followup.send(f"❌ Ses kanalına bağlanırken hata oluştu: {e}")
+        await interaction.followup.send(f"❌ Ses kanalına bağlanırken hata oluştu: `{e}`\n*(PyNaCl kütüphanesinin yüklü olduğundan emin olun)*")
         return
 
     query = sarkici_veya_url
@@ -364,60 +183,16 @@ async def oynat(interaction: discord.Interaction, sarkici_veya_url: str):
         await interaction.followup.send(f"🎵 **Şu an çalıyor:** `{title}`")
 
     except Exception as e:
-        await interaction.followup.send(f"❌ Şarkı oynatılırken bir hata oluştu: {e}")
+        await interaction.followup.send(f"❌ Şarkı oynatılırken hata oluştu: {e}")
 
-@bot.tree.command(name="dur", description="Çalan müziği durdurur ve bottan ayrılır.")
+@bot.tree.command(name="dur", description="Çalan müziği durdurur ve kanaldan ayrılır.")
 async def dur(interaction: discord.Interaction):
-    voice_client = interaction.guild.voice_client
+    voice_client = interaction.guild.voice_client if interaction.guild else None
     if voice_client and voice_client.is_connected():
         await voice_client.disconnect()
         await interaction.response.send_message("⏹️ Müzik durduruldu, ses kanalından ayrıldım.")
     else:
         await interaction.response.send_message("❌ Zaten bir ses kanalında değilim.")
-
-# --- EVENTLER ---
-
-@bot.event
-async def on_member_join(member):
-    if SERVER_DATA.get("stats_channel_id"):
-        ch = member.guild.get_channel(SERVER_DATA["stats_channel_id"])
-        if ch:
-            await ch.edit(name=f"👥│Üye Sayısı: {member.guild.member_count}")
-
-    if SERVER_DATA.get("welcome_channel_id"):
-        welcome_ch = member.guild.get_channel(SERVER_DATA["welcome_channel_id"])
-        if welcome_ch:
-            await welcome_ch.send(f"👋 Hoş geldin {member.mention}! Seninle birlikte **{member.guild.member_count}** kişi olduk!")
-
-@bot.event
-async def on_member_remove(member):
-    if SERVER_DATA.get("stats_channel_id"):
-        ch = member.guild.get_channel(SERVER_DATA["stats_channel_id"])
-        if ch:
-            await ch.edit(name=f"👥│Üye Sayısı: {member.guild.member_count}")
-
-    if SERVER_DATA.get("welcome_channel_id"):
-        welcome_ch = member.guild.get_channel(SERVER_DATA["welcome_channel_id"])
-        if welcome_ch:
-            await welcome_ch.send(f"😢 {member.display_name} aramamızdan ayrıldı. Toplam **{member.guild.member_count}** kişi kaldık.")
-
-temp_channels = []
-
-@bot.event
-async def on_voice_state_update(member, before, after):
-    if after.channel and SERVER_DATA.get("join_to_create_id") and after.channel.id == SERVER_DATA["join_to_create_id"]:
-        category = bot.get_channel(SERVER_DATA.get("temp_category_id"))
-        new_ch = await member.guild.create_voice_channel(
-            name=f"🎮│{member.display_name}'in Odası",
-            category=category
-        )
-        temp_channels.append(new_ch.id)
-        await member.move_to(new_ch)
-
-    if before.channel and before.channel.id in temp_channels:
-        if len(before.channel.members) == 0:
-            temp_channels.remove(before.channel.id)
-            await before.channel.delete()
 
 # Oyun Değişkenleri
 counting_number = 0
@@ -430,8 +205,7 @@ used_words = set()
 AUTO_RESPONSES = {
     "sa": "Aleyküm selam, hoş geldin! 👋",
     "sea": "Aleyküm selam!",
-    "selam": "Selam! Naber?",
-    "sa eyt": "Aleyküm selam eyt!"
+    "selam": "Selam! Naber?"
 }
 
 @bot.event
@@ -443,13 +217,12 @@ async def on_message(message):
 
     content_lower = message.content.lower().strip()
 
-    # Oto Cevap
     if content_lower in AUTO_RESPONSES:
         await message.channel.send(AUTO_RESPONSES[content_lower])
         return
 
     # Sayı Sayma Oyunu
-    if message.channel.name == "sayi-sayma":
+    if getattr(message.channel, 'name', None) == "sayi-sayma":
         if message.content.isdigit():
             val = int(message.content)
             expected = counting_number + 1
@@ -460,81 +233,63 @@ async def on_message(message):
             else:
                 try:
                     await message.delete()
-                except:
+                except Exception:
                     pass
-                
-                if message.author == last_counter_user:
-                    msg = await message.channel.send(f"⚠️ {message.author.mention}, üst üste yazamazsın! Sıradaki sayı: **{expected}**")
-                else:
-                    msg = await message.channel.send(f"⚠️ {message.author.mention}, yanlış sayı! **{expected}** ile devam etmelisin.")
+                msg = await message.channel.send(f"⚠️ {message.author.mention}, yanlış sayı veya üst üste yazdın! Sıradaki sayı: **{expected}**")
                 await asyncio.sleep(4)
                 await msg.delete()
         else:
             try:
                 await message.delete()
-            except:
+            except Exception:
                 pass
-            msg = await message.channel.send(f"⚠️ {message.author.mention}, lütfen sadece sayı yazın! Sıradaki sayı: **{counting_number + 1}**")
-            await asyncio.sleep(4)
-            await msg.delete()
 
     # Kelime Türetme Oyunu
-    elif message.channel.name == "kelime-turetme":
+    elif getattr(message.channel, 'name', None) == "kelime-turetme":
         word = content_lower
 
-        # 1. Üst üste yazma kontrolü
         if message.author == last_word_user:
             try:
                 await message.delete()
-            except:
+            except Exception:
                 pass
-            msg = await message.channel.send(f"⚠️ {message.author.mention}, üst üste kelime yazamazsın! Başkasının yazmasını bekle.")
+            msg = await message.channel.send(f"⚠️ {message.author.mention}, üst üste kelime yazamazsın!")
             await asyncio.sleep(4)
             await msg.delete()
             return
 
-        # 2. Türkçe Sözlük Kontrolü
+        # Sözlük Kontrolü (Sözlük yüklendiyse kontrol et)
         if TURKISH_WORDS and word not in TURKISH_WORDS:
             try:
                 await message.delete()
-            except:
+            except Exception:
                 pass
             msg = await message.channel.send(f"❌ {message.author.mention}, **'{word}'** geçerli bir Türkçe kelime değil!")
             await asyncio.sleep(4)
             await msg.delete()
             return
 
-        # 3. Kullanılmış Kelime Kontrolü
         if word in used_words:
             try:
                 await message.delete()
-            except:
+            except Exception:
                 pass
-            msg = await message.channel.send(f"⚠️ {message.author.mention}, **'{word}'** kelimesi daha önce kullanıldı!")
+            msg = await message.channel.send(f"⚠️ {message.author.mention}, **'{word}'** daha önce kullanıldı!")
             await asyncio.sleep(4)
             await msg.delete()
             return
 
-        # 4. İlk Kelime veya Harf Uyumu
-        if last_word_letter == "":
+        if last_word_letter == "" or word.startswith(last_word_letter):
             last_word_letter = word[-1]
             last_word_user = message.author
             used_words.add(word)
             await message.add_reaction("✅")
-        elif word.startswith(last_word_letter):
-            last_word_letter = word[-1]
-            last_word_user = message.author
-            used_words.add(word)
-            await message.add_reaction("✅")
-            info_msg = await message.channel.send(f"🔤 Sıradaki kelime **'{last_word_letter.upper()}'** harfi ile başlamalı!")
-            await asyncio.sleep(5)
-            await info_msg.delete()
         else:
             try:
                 await message.delete()
-            except:
+            except Exception:
                 pass
-            msg = await message.channel.send(f"❌ {message.author.mention}, yanlış harf! Kelime **'{last_word_letter.upper()}'** harfi ile başlamalıydı.")
+            msg = await message.channel.send(f"❌ {message.author.mention}, kelime **'{last_word_letter.upper()}'** harfi ile başlamalıydı.")
             await asyncio.sleep(4)
             await msg.delete()
 
@@ -542,15 +297,9 @@ async def on_message(message):
 
 @bot.event
 async def on_ready():
-    print(f"[{bot.user.name}] Başarıyla başlatıldı. Tüm modüller aktif!")
-    load_turkish_words()
-    
-    # 7/24 Web sunucusunu ve döngüleri başlat
+    print(f"[{bot.user.name}] Başarıyla başlatıldı!")
+    await fetch_turkish_words()
     keep_alive()
-    if not check_youtube.is_running():
-        check_youtube.start()
-    if not update_member_count.is_running():
-        update_member_count.start()
 
 if __name__ == "__main__":
     bot.run(TOKEN)
