@@ -6,6 +6,7 @@ import yt_dlp
 import feedparser
 import json
 import os
+import urllib.request
 from flask import Flask
 from threading import Thread
 
@@ -24,7 +25,21 @@ def keep_alive():
     t.daemon = True
     t.start()
 
-# --- 2. KALICI VERİTABANI (JSON) SİSTEMİ ---
+# --- 2. TÜRKÇE KELİME LİSTESİ YÜKLEME (Kelime Türetme İçin) ---
+TURKISH_WORDS = set()
+
+def load_turkish_words():
+    global TURKISH_WORDS
+    try:
+        url = "https://raw.githubusercontent.com/mertkahyao/turkish-word-list/master/words.txt"
+        req = urllib.request.urlopen(url)
+        words_data = req.read().decode('utf-8').splitlines()
+        TURKISH_WORDS = set(w.strip().lower() for w in words_data if w.strip())
+        print(f"✅ {len(TURKISH_WORDS)} adet Türkçe kelime hafızaya yüklendi!")
+    except Exception as e:
+        print(f"⚠️ Kelime listesi yüklenirken hata oluştu: {e}")
+
+# --- 3. KALICI VERİTABANI (JSON) SİSTEMİ ---
 DB_FILE = "db.json"
 
 def load_db():
@@ -51,7 +66,7 @@ def save_db(data):
 SERVER_DATA = load_db()
 
 # --- DISCORD AYARLARI ---
-TOKEN = os.getenv("DISCORD_TOKEN")  # Token'ı çevre değişkeninden çeker
+TOKEN = os.getenv("DISCORD_TOKEN")
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -64,12 +79,11 @@ class SetupBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        # Komutları tüm sunucular için genel (global) olarak senkronize eder
         await self.tree.sync()
 
 bot = SetupBot()
 
-# Müzik Ayarları (Yüksek Ses Kalitesi & Optimize FFmpeg)
+# Müzik Ayarları
 YTDL_OPTIONS = {
     'format': 'bestaudio/best',
     'extractaudio': True,
@@ -92,7 +106,7 @@ FFMPEG_OPTIONS = {
 
 ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
 
-# --- TICKET (DESTEK) SİSTEMİ VIEW ---
+# --- TICKET SİSTEMİ VIEW ---
 class TicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -171,9 +185,21 @@ async def sunucu_kur(interaction: discord.Interaction):
         roles.get("🛠️ | Moderatör", everyone): discord.PermissionOverwrite(send_messages=True)
     }
 
+    # Yönetim Odaları
     cat_admin = await guild.create_category("🛑 │ YÖNETİM ODALARI")
     await guild.create_text_channel("yönetim-sohbet", category=cat_admin)
 
+    # Destek Kategorisi & Otomatik Ticket Kanalı
+    cat_support = await guild.create_category("🎫 │ DESTEK MERKEZİ")
+    c_ticket = await guild.create_text_channel("🎫│destek-talebi", category=cat_support, overwrites=read_only)
+    embed = discord.Embed(
+        title="🎫 Destek Sistemi", 
+        description="Aşağıdaki butona tıklayarak yetkili ekibimizle özel bir destek kanalı açabilirsiniz.", 
+        color=discord.Color.blue()
+    )
+    await c_ticket.send(embed=embed, view=TicketView())
+
+    # Bilgilendirme
     cat_info = await guild.create_category("📢 │ BİLGİLENDİRME")
     await guild.create_text_channel("📜│kurallar", category=cat_info, overwrites=read_only)
     await guild.create_text_channel("📢│duyurular", category=cat_info, overwrites=read_only)
@@ -181,6 +207,7 @@ async def sunucu_kur(interaction: discord.Interaction):
     c_welcome = await guild.create_text_channel("👋│gelen-giden", category=cat_info, overwrites=read_only)
     SERVER_DATA["welcome_channel_id"] = c_welcome.id
 
+    # Sunucu Paneli
     cat_stats = await guild.create_category("📊 │ SUNUCU PANELİ")
     c_stats = await guild.create_voice_channel(
         f"👥│Üye Sayısı: {guild.member_count}", 
@@ -189,16 +216,19 @@ async def sunucu_kur(interaction: discord.Interaction):
     )
     SERVER_DATA["stats_channel_id"] = c_stats.id
 
+    # Sohbet & Oyunlar
     cat_chat = await guild.create_category("💬 │ SOHBET & OYUN")
     await guild.create_text_channel("💬│genel-sohbet", category=cat_chat)
     await guild.create_text_channel("🤖│bot-komut", category=cat_chat)
     await guild.create_text_channel("sayi-sayma", category=cat_chat)
     await guild.create_text_channel("kelime-turetme", category=cat_chat)
 
+    # Ses Kanalları
     cat_voice = await guild.create_category("🔊 │ SES KANALLARI")
     await guild.create_voice_channel("Genel Sohbet 1", category=cat_voice)
     await guild.create_voice_channel("🎵 Müzik Odası", category=cat_voice)
 
+    # Özel Odalar
     cat_temp = await guild.create_category("➕ │ ÖZEL ODALAR")
     c_create = await guild.create_voice_channel("➕│Oda Oluştur", category=cat_temp)
     SERVER_DATA["join_to_create_id"] = c_create.id
@@ -212,7 +242,7 @@ async def sunucu_kur(interaction: discord.Interaction):
         except:
             pass
 
-    await interaction.channel.send("✅ **Bütün eski kanallar ve roller silindi! Sıfırdan profesyonel sunucu yapısı kuruldu.**")
+    await interaction.channel.send("✅ **Bütün eski kanallar ve roller silindi! Ticket kanalı dahil sıfırdan kurulum tamamlandı.**")
 
 # --- YOUTUBE KURULUM KOMUTU ---
 @bot.tree.command(name="youtube-kur", description="YouTube kanal bildirimi için kanal ID'si ve duyuru kanalını ayarlar.")
@@ -232,7 +262,7 @@ async def youtube_kur(interaction: discord.Interaction, youtube_kanal_id: str, d
     )
 
 # --- TICKET KOMUTLARI ---
-@bot.tree.command(name="ticket-kur", description="Destek talebi (Ticket) butonunu seçilen kanala kurar.")
+@bot.tree.command(name="ticket-kur", description="Destek talebi (Ticket) butonunu seçilen kanala manuel kurar.")
 @app_commands.default_permissions(administrator=True)
 async def ticket_kur(interaction: discord.Interaction, kanal: discord.TextChannel):
     embed = discord.Embed(title="🎫 Destek Sistemi", description="Aşağıdaki butona tıklayarak yetkili ekibimizle özel bir destek kanalı açabilirsiniz.", color=discord.Color.blue())
@@ -343,7 +373,7 @@ async def dur(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("❌ Zaten bir ses kanalında değilim.")
 
-# --- EVENTLER (GELEN-GİDEN, DİNAMİK ODALAR & OYUNLAR) ---
+# --- EVENTLER ---
 
 @bot.event
 async def on_member_join(member):
@@ -355,7 +385,7 @@ async def on_member_join(member):
     if SERVER_DATA.get("welcome_channel_id"):
         welcome_ch = member.guild.get_channel(SERVER_DATA["welcome_channel_id"])
         if welcome_ch:
-            await welcome_ch.send(f"👋 Hoş geldin {member.mention}! Senininle birlikte **{member.guild.member_count}** kişi olduk!")
+            await welcome_ch.send(f"👋 Hoş geldin {member.mention}! Seninle birlikte **{member.guild.member_count}** kişi olduk!")
 
 @bot.event
 async def on_member_remove(member):
@@ -391,6 +421,7 @@ async def on_voice_state_update(member, before, after):
 counting_number = 0
 last_counter_user = None
 last_word_letter = ""
+used_words = set()
 
 AUTO_RESPONSES = {
     "sa": "Aleyküm selam, hoş geldin! 👋",
@@ -401,7 +432,7 @@ AUTO_RESPONSES = {
 
 @bot.event
 async def on_message(message):
-    global counting_number, last_counter_user, last_word_letter
+    global counting_number, last_counter_user, last_word_letter, used_words
 
     if message.author.bot:
         return
@@ -413,43 +444,92 @@ async def on_message(message):
         await message.channel.send(AUTO_RESPONSES[content_lower])
         return
 
-    # Sayı Sayma Oyunu
+    # Sayı Sayma Oyunu (Sıfırlama yok, hatalı mesajı siler)
     if message.channel.name == "sayi-sayma":
         if message.content.isdigit():
             val = int(message.content)
-            if val == counting_number + 1 and message.author != last_counter_user:
+            expected = counting_number + 1
+            if val == expected and message.author != last_counter_user:
                 counting_number += 1
                 last_counter_user = message.author
                 await message.add_reaction("✅")
             else:
-                counting_number = 0
-                last_counter_user = None
-                await message.add_reaction("❌")
-                await message.channel.send(f"{message.author.mention} sırayı veya sayıyı bozdu! Sayac 0'landı. 1'den başlayın.")
+                try:
+                    await message.delete()
+                except:
+                    pass
+                
+                if message.author == last_counter_user:
+                    msg = await message.channel.send(f"⚠️ {message.author.mention}, üst üste yazamazsın! Sıradaki sayı: **{expected}**")
+                else:
+                    msg = await message.channel.send(f"⚠️ {message.author.mention}, yanlış sayı! **{expected}** ile devam etmelisin.")
+                await asyncio.sleep(4)
+                await msg.delete()
+        else:
+            try:
+                await message.delete()
+            except:
+                pass
+            msg = await message.channel.send(f"⚠️ {message.author.mention}, lütfen sadece sayı yazın! Sıradaki sayı: **{counting_number + 1}**")
+            await asyncio.sleep(4)
+            await msg.delete()
 
-    # Kelime Türetme Oyunu
+    # Kelime Türetme Oyunu (Gerçek Türkçe Kelime Kontrolü)
     elif message.channel.name == "kelime-turetme":
         word = content_lower
+
+        # Kelime Türkçe sözlükte var mı?
+        if TURKISH_WORDS and word not in TURKISH_WORDS:
+            try:
+                await message.delete()
+            except:
+                pass
+            msg = await message.channel.send(f"❌ {message.author.mention}, **'{word}'** geçerli bir Türkçe kelime değil!")
+            await asyncio.sleep(4)
+            await msg.delete()
+            return
+
+        # Daha önce kullanıldı mı?
+        if word in used_words:
+            try:
+                await message.delete()
+            except:
+                pass
+            msg = await message.channel.send(f"⚠️ {message.author.mention}, **'{word}'** kelimesi daha önce kullanıldı!")
+            await asyncio.sleep(4)
+            await msg.delete()
+            return
+
+        # Harf uyumu kontrolü
         if last_word_letter == "":
             last_word_letter = word[-1]
+            used_words.add(word)
             await message.add_reaction("✅")
         elif word.startswith(last_word_letter):
             last_word_letter = word[-1]
+            used_words.add(word)
             await message.add_reaction("✅")
-            await message.channel.send(f"Yeni kelime **{last_word_letter.upper()}** harfi ile başlamalı!")
+            info_msg = await message.channel.send(f"🔤 Sıradaki kelime **'{last_word_letter.upper()}'** harfi ile başlamalı!")
+            await asyncio.sleep(5)
+            await info_msg.delete()
         else:
-            await message.add_reaction("❌")
-            await message.channel.send(f"Yanlış harf! Kelime **{last_word_letter.upper()}** ile başlamalıydı.")
+            try:
+                await message.delete()
+            except:
+                pass
+            msg = await message.channel.send(f"❌ {message.author.mention}, yanlış harf! Kelime **'{last_word_letter.upper()}'** harfi ile başlamalıydı.")
+            await asyncio.sleep(4)
+            await msg.delete()
 
     await bot.process_commands(message)
 
 @bot.event
 async def on_ready():
     print(f"[{bot.user.name}] Başarıyla başlatıldı. Tüm modüller aktif!")
-    keep_alive() # Web sunucusu başlatılıyor
+    load_turkish_words() # Türkçe sözlüğü hafızaya çeker
+    keep_alive()
     check_youtube.start()
     update_member_count.start()
 
-# Botu Çalıştır
 if __name__ == "__main__":
     bot.run(TOKEN)
