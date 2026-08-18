@@ -151,9 +151,7 @@ bot = SetupBot()
 
 # --- 4. MÜZİK AYARLARI VE KOMUTLARI (Cookies Entegreli) ---
 YTDL_OPTIONS = {
-    'format': 'bestaudio/best',
-    'extractaudio': True,
-    'audioformat': 'mp3',
+    'format': 'bestaudio[ext=m4a]/bestaudio/best',
     'restrictfilenames': True,
     'noplaylist': True,
     'nocheckcertificate': True,
@@ -165,8 +163,7 @@ YTDL_OPTIONS = {
     'cookiefile': 'cookies.txt' if os.path.exists("cookies.txt") else None,
     'extractor_args': {
         'youtube': {
-            'player_client': ['ios', 'mweb'],
-            'skip': ['hls', 'dash']
+            'player_client': ['android', 'web'],
         }
     }
 }
