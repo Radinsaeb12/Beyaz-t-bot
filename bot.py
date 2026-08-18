@@ -10,7 +10,14 @@ import aiohttp
 from flask import Flask
 from threading import Thread
 
-# --- 1. 7/24 UYKUYU ENGELLEYEN WEB SUNUCUSU ---
+# FFmpeg Otomatik Yükleyici Entegrasyonu
+try:
+    import static_ffmpeg
+    static_ffmpeg.add_paths()
+except Exception as e:
+    print(f"⚠️ FFmpeg uyarısı: {e}")
+
+# --- 1. WEB SUNUCUSU (7/24 Uptime) ---
 app = Flask('')
 
 @app.route('/')
@@ -25,25 +32,7 @@ def keep_alive():
     t.daemon = True
     t.start()
 
-# --- 2. TÜRKÇE KELİME LİSTESİ YÜKLEME ---
-TURKISH_WORDS = set()
-
-async def fetch_turkish_words():
-    global TURKISH_WORDS
-    url = "https://raw.githubusercontent.com/kelimeler/turkce-kelimeler/master/turkce-kelimeler.txt"
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as response:
-                if response.status == 200:
-                    text = await response.text()
-                    TURKISH_WORDS = set(w.strip().lower() for w in text.splitlines() if w.strip())
-                    print(f"✅ {len(TURKISH_WORDS)} adet Türkçe kelime yüklendi!")
-                else:
-                    print("⚠️ Kelime listesi indirilemedi, durum kodu:", response.status)
-    except Exception as e:
-        print(f"⚠️ Kelime listesi çekilirken hata oluştu: {e}")
-
-# --- 3. VERİTABANI İŞLEMLERİ ---
+# --- 2. VERİTABANI İŞLEMLERİ ---
 DB_FILE = "db.json"
 
 def load_db():
@@ -69,6 +58,24 @@ def save_db(data):
 
 SERVER_DATA = load_db()
 
+# --- 3. TÜRKÇE KELİME LİSTESİ ---
+TURKISH_WORDS = set()
+
+async def fetch_turkish_words():
+    global TURKISH_WORDS
+    url = "https://raw.githubusercontent.com/mertcuruk/turkce-kelimeler/master/kelimeler.txt"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status == 200:
+                    text = await response.text()
+                    TURKISH_WORDS = set(w.strip().lower() for w in text.splitlines() if w.strip())
+                    print(f"✅ {len(TURKISH_WORDS)} adet Türkçe kelime yüklendi!")
+                else:
+                    print(f"⚠️ Kelime listesi çekilemedi, kod: {response.status}")
+    except Exception as e:
+        print(f"⚠️ Kelime listesi hatası: {e}")
+
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 intents = discord.Intents.default()
@@ -77,40 +84,10 @@ intents.guilds = True
 intents.members = True
 intents.voice_states = True
 
-class SetupBot(commands.Bot):
-    def __init__(self):
-        super().__init__(command_prefix="!", intents=intents)
+# Dinamik Geçici Ses Kanalları Takibi
+temp_channels = []
 
-    async def setup_hook(self):
-        self.add_view(TicketView())
-        await self.tree.sync()
-
-bot = SetupBot()
-
-# Müzik Ayarları
-YTDL_OPTIONS = {
-    'format': 'bestaudio/best',
-    'extractaudio': True,
-    'audioformat': 'mp3',
-    'restrictfilenames': True,
-    'noplaylist': True,
-    'nocheckcertificate': True,
-    'ignoreerrors': False,
-    'quiet': True,
-    'no_warnings': True,
-    'default_search': 'ytsearch',
-    'source_address': '0.0.0.0',
-    'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
-}
-
-FFMPEG_OPTIONS = {
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -probesize 20000000 -analyzeduration 0',
-    'options': '-vn -b:a 192k -loglevel panic'
-}
-
-ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
-
-# Ticket View
+# Destek (Ticket) Arayüzleri
 class TicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -134,10 +111,60 @@ class TicketView(discord.ui.View):
             return
 
         ticket_channel = await guild.create_text_channel(channel_name, overwrites=overwrites)
-        await ticket_channel.send(f"Merhaba {member.mention}, yetkililer kısa süre içinde burada olacaktır.")
+        
+        close_view = TicketCloseView()
+        await ticket_channel.send(
+            f"Merhaba {member.mention}, yetkililer kısa süre içinde burada olacaktır.\nTalebi kapatmak için aşağıdaki butona basabilirsiniz.",
+            view=close_view
+        )
         await interaction.response.send_message(f"Destek kanalınız oluşturuldu: {ticket_channel.mention}", ephemeral=True)
 
-# Müzik Komutları
+class TicketCloseView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="🔒 Talebi Kapat", style=discord.ButtonStyle.danger, custom_id="close_ticket_btn")
+    async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("Kanal 5 saniye içinde siliniyor...")
+        await asyncio.sleep(5)
+        await interaction.channel.delete()
+
+class SetupBot(commands.Bot):
+    def __init__(self):
+        super().__init__(command_prefix="!", intents=intents)
+
+    async def setup_hook(self):
+        self.add_view(TicketView())
+        self.add_view(TicketCloseView())
+        await self.tree.sync()
+        youtube_loop.start()
+        stats_loop.start()
+
+bot = SetupBot()
+
+# --- 4. MÜZİK AYARLARI VE KOMUTLARI ---
+YTDL_OPTIONS = {
+    'format': 'bestaudio/best',
+    'extractaudio': True,
+    'audioformat': 'mp3',
+    'restrictfilenames': True,
+    'noplaylist': True,
+    'nocheckcertificate': True,
+    'ignoreerrors': False,
+    'quiet': True,
+    'no_warnings': True,
+    'default_search': 'ytsearch',
+    'source_address': '0.0.0.0',
+    'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
+}
+
+FFMPEG_OPTIONS = {
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -probesize 20000000 -analyzeduration 0',
+    'options': '-vn -b:a 192k -loglevel panic'
+}
+
+ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
+
 @bot.tree.command(name="oynat", description="Şarkı adı veya YouTube URL'si ile müzik çalar.")
 async def oynat(interaction: discord.Interaction, sarkici_veya_url: str):
     await interaction.response.defer(thinking=True)
@@ -151,11 +178,11 @@ async def oynat(interaction: discord.Interaction, sarkici_veya_url: str):
 
     try:
         if not voice_client:
-            voice_client = await voice_channel.connect()
+            voice_client = await voice_channel.connect(self_deaf=True)
         elif voice_client.channel != voice_channel:
             await voice_client.move_to(voice_channel)
     except Exception as e:
-        await interaction.followup.send(f"❌ Ses kanalına bağlanırken hata oluştu: `{e}`\n*(PyNaCl kütüphanesinin yüklü olduğundan emin olun)*")
+        await interaction.followup.send(f"❌ Ses kanalına bağlanırken hata oluştu: `{e}`")
         return
 
     query = sarkici_veya_url
@@ -183,7 +210,7 @@ async def oynat(interaction: discord.Interaction, sarkici_veya_url: str):
         await interaction.followup.send(f"🎵 **Şu an çalıyor:** `{title}`")
 
     except Exception as e:
-        await interaction.followup.send(f"❌ Şarkı oynatılırken hata oluştu: {e}")
+        await interaction.followup.send(f"❌ Şarkı oynatılırken hata oluştu: `{e}`")
 
 @bot.tree.command(name="dur", description="Çalan müziği durdurur ve kanaldan ayrılır.")
 async def dur(interaction: discord.Interaction):
@@ -194,7 +221,134 @@ async def dur(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("❌ Zaten bir ses kanalında değilim.")
 
-# Oyun Değişkenleri
+# --- 5. TICKET KURULUM KOMUTU ---
+@bot.tree.command(name="ticket-kur", description="Destek talebi panelini bulunduğunuz kanala kurar.")
+@app_commands.checks.has_permissions(administrator=True)
+async def ticket_kur(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="🎫 Destek Sistemi",
+        description="Bir sorununuz veya sorunuz varsa aşağıdaki **Destek Talebi Aç** butonuna basarak yetkililerle iletişime geçebilirsiniz.",
+        color=discord.Color.blue()
+    )
+    await interaction.channel.send(embed=embed, view=TicketView())
+    await interaction.response.send_message("✅ Destek paneli başarıyla oluşturuldu!", ephemeral=True)
+
+# --- 6. KURULUM / AYAR KOMUTLARI ---
+@bot.tree.command(name="kurulum-hosgeldin", description="Hoş geldin ve görüşürüz kanalını ayarlar.")
+@app_commands.checks.has_permissions(administrator=True)
+async def kurulum_hosgeldin(interaction: discord.Interaction, kanal: discord.TextChannel):
+    SERVER_DATA["welcome_channel_id"] = kanal.id
+    save_db(SERVER_DATA)
+    await interaction.response.send_message(f"✅ Hoş geldin kanalı {kanal.mention} olarak ayarlandı.")
+
+@bot.tree.command(name="kurulum-istatistik", description="Sunucu üye sayısının yazılacağı ses kanalını ayarlar.")
+@app_commands.checks.has_permissions(administrator=True)
+async def kurulum_istatistik(interaction: discord.Interaction, kanal: discord.VoiceChannel):
+    SERVER_DATA["stats_channel_id"] = kanal.id
+    save_db(SERVER_DATA)
+    await interaction.response.send_message(f"✅ İstatistik kanalı {kanal.mention} olarak ayarlandı.")
+
+@bot.tree.command(name="kurulum-gecici-ses", description="Geçici ses odası oluşturma kanalını ve kategorisini ayarlar.")
+@app_commands.checks.has_permissions(administrator=True)
+async def kurulum_gecici_ses(interaction: discord.Interaction, giris_kanali: discord.VoiceChannel, kategori: discord.CategoryChannel):
+    SERVER_DATA["join_to_create_id"] = giris_kanali.id
+    SERVER_DATA["temp_category_id"] = kategori.id
+    save_db(SERVER_DATA)
+    await interaction.response.send_message(f"✅ Geçici ses sistemi ayarlandı! Giriş Kanalı: {giris_kanali.mention}, Hedef Kategori: **{kategori.name}**")
+
+@bot.tree.command(name="kurulum-youtube", description="YouTube bildirim kanalını ve RSS URL adresini ayarlar.")
+@app_commands.checks.has_permissions(administrator=True)
+async def kurulum_youtube(interaction: discord.Interaction, kanal: discord.TextChannel, rss_url: str):
+    SERVER_DATA["yt_channel_id"] = kanal.id
+    SERVER_DATA["yt_rss_url"] = rss_url
+    save_db(SERVER_DATA)
+    await interaction.response.send_message(f"✅ YouTube bildirim kanalı {kanal.mention} olarak ayarlandı!")
+
+# --- 7. ARKA PLAN GÖREVLERİ (LOOPS) ---
+@tasks.loop(minutes=5)
+async def youtube_loop():
+    rss_url = SERVER_DATA.get("yt_rss_url")
+    channel_id = SERVER_DATA.get("yt_channel_id")
+
+    if not rss_url or not channel_id:
+        return
+
+    try:
+        feed = feedparser.parse(rss_url)
+        if feed.entries:
+            latest_entry = feed.entries[0]
+            video_id = latest_entry.yt_videoid if hasattr(latest_entry, 'yt_videoid') else latest_entry.link
+            video_url = latest_entry.link
+            video_title = latest_entry.title
+
+            if SERVER_DATA.get("last_video_id") != video_id:
+                SERVER_DATA["last_video_id"] = video_id
+                save_db(SERVER_DATA)
+
+                target_channel = bot.get_channel(channel_id)
+                if target_channel:
+                    await target_channel.send(f"📢 **Yeni YouTube Videosu Yayında!**\n\n🎥 **{video_title}**\n🔗 {video_url}")
+    except Exception as e:
+        print(f"⚠️ YouTube kontrol hatası: {e}")
+
+@tasks.loop(minutes=10)
+async def stats_loop():
+    stats_channel_id = SERVER_DATA.get("stats_channel_id")
+    if not stats_channel_id:
+        return
+
+    channel = bot.get_channel(stats_channel_id)
+    if channel and isinstance(channel, discord.VoiceChannel):
+        total_members = channel.guild.member_count
+        try:
+            await channel.edit(name=f"👥 Üyeler: {total_members}")
+        except Exception as e:
+            print(f"⚠️ İstatistik güncellenemedi: {e}")
+
+# --- 8. GEÇİCİ SES KANALI VE ÜYE EVENT'LERİ ---
+@bot.event
+async def on_voice_state_update(member, before, after):
+    join_to_create_id = SERVER_DATA.get("join_to_create_id")
+    temp_category_id = SERVER_DATA.get("temp_category_id")
+
+    # Geçici Odaya Katılınca Yeni Oda Açma
+    if after.channel and after.channel.id == join_to_create_id and temp_category_id:
+        guild = member.guild
+        category = guild.get_channel(temp_category_id)
+        if category:
+            temp_channel = await guild.create_voice_channel(
+                name=f"🔊 {member.display_name}'in Odası",
+                category=category
+            )
+            temp_channels.append(temp_channel.id)
+            await member.move_to(temp_channel)
+
+    # Boşalan Geçici Odayı Otomatik Silme
+    if before.channel and before.channel.id in temp_channels:
+        if len(before.channel.members) == 0:
+            temp_channels.remove(before.channel.id)
+            try:
+                await before.channel.delete()
+            except Exception:
+                pass
+
+@bot.event
+async def on_member_join(member):
+    welcome_channel_id = SERVER_DATA.get("welcome_channel_id")
+    if welcome_channel_id:
+        channel = bot.get_channel(welcome_channel_id)
+        if channel:
+            await channel.send(f"🎉 Hoş geldin {member.mention}! Sunucumuza katıldığın için mutluyuz.")
+
+@bot.event
+async def on_member_remove(member):
+    welcome_channel_id = SERVER_DATA.get("welcome_channel_id")
+    if welcome_channel_id:
+        channel = bot.get_channel(welcome_channel_id)
+        if channel:
+            await channel.send(f"👋 **{member.display_name}** aramızdan ayrıldı.")
+
+# --- 9. MESAJ EVENT'LERİ VE OYUNLAR ---
 counting_number = 0
 last_counter_user = None
 
@@ -258,7 +412,6 @@ async def on_message(message):
             await msg.delete()
             return
 
-        # Sözlük Kontrolü (Sözlük yüklendiyse kontrol et)
         if TURKISH_WORDS and word not in TURKISH_WORDS:
             try:
                 await message.delete()
