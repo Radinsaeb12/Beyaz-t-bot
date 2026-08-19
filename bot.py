@@ -24,6 +24,14 @@ try:
 except Exception as e:
     print(f"⚠️ FFmpeg uyarısı: {e}")
 
+# --- PO Token Provider Kurulumu (bgutil-ytdlp-pot-provider) ---
+# build.sh betiği ~/bgutil-ytdlp-pot-provider klasörünü build zamanında hazırlıyor.
+BGUTIL_SERVER_HOME = os.path.expanduser("~/bgutil-ytdlp-pot-provider/server")
+if os.path.exists(os.path.join(BGUTIL_SERVER_HOME, "build", "main.js")):
+    print("✅ PO Token provider (bgutil) bulundu, yt-dlp bunu kullanacak.")
+else:
+    print("⚠️ PO Token provider (bgutil) bulunamadı, yt-dlp PO token olmadan devam edecek.")
+
 # --- 1. WEB SUNUCUSU (7/24 Uptime) ---
 app = Flask('')
 
@@ -163,8 +171,11 @@ YTDL_OPTIONS = {
     'cookiefile': 'cookies.txt' if os.path.exists("cookies.txt") else None,
     'extractor_args': {
         'youtube': {
-            'player_client': ['mweb'],
-        }
+            'player_client': ['web', 'mweb'],
+        },
+        'youtubepot-bgutilscript': {
+            'server_home': [BGUTIL_SERVER_HOME],
+        },
     }
 }
 

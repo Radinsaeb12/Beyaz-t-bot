@@ -1,8 +1,8 @@
 discord.py>=2.5.0
-yt-dlp>=2024.12.23
+yt-dlp>=2025.6.9
 feedparser
 Flask
 PyNaCl
 aiohttp
 static-ffmpeg
-davey
+bgutil-ytdlp-pot-provider
