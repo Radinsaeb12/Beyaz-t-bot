@@ -171,7 +171,7 @@ YTDL_OPTIONS = {
     'cookiefile': 'cookies.txt' if os.path.exists("cookies.txt") else None,
     'extractor_args': {
         'youtube': {
-            'player_client': ['web', 'mweb'],
+            'player_client': ['web'],
         },
         'youtubepot-bgutilscript': {
             'server_home': [BGUTIL_SERVER_HOME],
