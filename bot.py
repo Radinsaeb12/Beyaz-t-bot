@@ -224,11 +224,33 @@ async def oynat(interaction: discord.Interaction, sarkici_veya_url: str):
 
         audio_url = video_data['url']
         title = video_data.get('title', 'Bilinmeyen Şarkı')
+        http_headers = video_data.get('http_headers', {})
+
+        print(f"🔎 video_data anahtarları: {list(video_data.keys())}")
+        print(f"🔎 url alanı: {audio_url}")
+        print(f"🔎 http_headers: {http_headers}")
+        print(f"🔎 formats sayısı: {len(video_data.get('formats', []))}")
 
         if voice_client.is_playing():
             voice_client.stop()
 
-        source = await discord.FFmpegOpusAudio.from_probe(audio_url, **FFMPEG_OPTIONS)
+        # ffprobe'un ayrı bir istek atıp header'sız erişip hata vermesini önlemek için
+        # cookie/user-agent header'larını ffmpeg'e de veriyoruz ve probe adımını atlıyoruz.
+        headers_str = "".join(f"{k}: {v}\r\n" for k, v in http_headers.items())
+        ffmpeg_before_options = FFMPEG_OPTIONS['before_options']
+        if headers_str:
+            ffmpeg_before_options = f'-headers "{headers_str}" ' + ffmpeg_before_options
+
+        try:
+            source = discord.FFmpegOpusAudio(
+                audio_url,
+                before_options=ffmpeg_before_options,
+                options=FFMPEG_OPTIONS['options']
+            )
+        except Exception as probe_err:
+            print(f"⚠️ FFmpegOpusAudio oluşturma hatası: {probe_err}")
+            raise
+
         voice_client.play(source)
 
         await interaction.followup.send(f"🎵 **Şu an çalıyor:** `{title}`")
