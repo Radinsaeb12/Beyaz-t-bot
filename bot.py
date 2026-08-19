@@ -7,6 +7,7 @@ import feedparser
 import json
 import os
 import aiohttp
+import shutil
 from flask import Flask
 from threading import Thread
 
@@ -158,8 +159,17 @@ class SetupBot(commands.Bot):
 bot = SetupBot()
 
 # --- 4. MÜZİK AYARLARI VE KOMUTLARI (Cookies Entegreli) ---
+
+# Deno ve Node'un PATH üzerinde ve yt-dlp tarafından bulunabilmesi için yolları belirliyoruz
+deno_path = shutil.which("deno") or os.path.expanduser("~/.deno/bin/deno")
+node_path = shutil.which("node") or "/usr/bin/node"
+
+# Eğer Render üzerinde Deno kurulmuşsa onu sistem PATH'ine ekliyoruz
+if os.path.exists(os.path.expanduser("~/.deno/bin")):
+    os.environ["PATH"] = f"{os.path.expanduser('~/.deno/bin')}:{os.environ.get('PATH', '')}"
+
 YTDL_OPTIONS = {
-    'format': 'best',
+    'format': 'bestaudio/best',
     'restrictfilenames': True,
     'noplaylist': True,
     'nocheckcertificate': True,
@@ -170,9 +180,13 @@ YTDL_OPTIONS = {
     'default_search': 'ytsearch',
     'source_address': '0.0.0.0',
     'cookiefile': 'cookies.txt' if os.path.exists("cookies.txt") else None,
+    'js_runtimes': {
+        'deno': {'path': deno_path} if os.path.exists(deno_path) else {},
+        'node': {'path': node_path} if os.path.exists(node_path) else {},
+    },
     'extractor_args': {
         'youtube': {
-            'player_client': ['web', 'android'],
+            'player_client': ['web'],  # Android cookie kabul etmediği için kaldırıldı
         },
         'youtubepot-bgutilscript': {
             'server_home': [BGUTIL_SERVER_HOME],
@@ -219,7 +233,7 @@ async def oynat(interaction: discord.Interaction, sarkici_veya_url: str):
             print(f"⚠️ İlk deneme başarısız: {e}")
             if "Requested format is not available" in str(e):
                 fallback_opts = dict(YTDL_OPTIONS)
-                fallback_opts['format'] = 'best'
+                fallback_opts['format'] = 'bestaudio/best'
                 fallback_ytdl = yt_dlp.YoutubeDL(fallback_opts)
                 data = await loop.run_in_executor(None, lambda: fallback_ytdl.extract_info(search_query, download=False))
             else:
@@ -263,7 +277,7 @@ async def oynat(interaction: discord.Interaction, sarkici_veya_url: str):
 
     except Exception as e:
         print(f"⚠️ Genel oynatma hatası: {e}")
-        await interaction.followup.send(f"❌ Şarkı oynatılırken hata oluştu: `{e}`\n-# debug: player_client=web+android, format=best, pot={'var' if os.path.exists(os.path.join(BGUTIL_SERVER_HOME, 'build', 'main.js')) else 'yok'}")
+        await interaction.followup.send(f"❌ Şarkı oynatılırken hata oluştu: `{e}`\n-# debug: player_client=web, format=bestaudio/best, pot={'var' if os.path.exists(os.path.join(BGUTIL_SERVER_HOME, 'build', 'main.js')) else 'yok'}")
 
 @bot.tree.command(name="dur", description="Çalan müziği durdurur ve kanaldan ayrılır.")
 async def dur(interaction: discord.Interaction):

@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 set -e
 
+echo "📦 Deno kuruluyor (JS Challenge Solver için)..."
+curl -fsSL https://deno.land/install.sh | sh
+export DENO_INSTALL="$HOME/.deno"
+export PATH="$DENO_INSTALL/bin:$PATH"
+
 echo "📦 Python bağımlılıkları kuruluyor..."
 pip install -r requirements.txt
 
-echo "🔎 Node.js sürümü kontrol ediliyor..."
-node --version || echo "⚠️ Node bulunamadı! Render Environment'a NODE_VERSION=20 ekleyin."
+echo "🔎 Node.js ve Deno kontrol ediliyor..."
+node --version || echo "⚠️ Node bulunamadı!"
+deno --version || echo "⚠️ Deno bulunamadı!"
 
 echo "📦 PO Token provider (bgutil-ytdlp-pot-provider) kuruluyor..."
-# Proje kök dizinine (repo'nun içine) kuruyoruz, böylece build ve runtime aynı yolu görür.
 BGUTIL_DIR="$(pwd)/bgutil-ytdlp-pot-provider"
-# Her build'de temiz kurulum yapıyoruz; eksik/bozuk package-lock.json gibi
-# önceki build kalıntılarının npm ci'yi bozmasını önlemek için.
 rm -rf "$BGUTIL_DIR"
 git clone --single-branch --branch 1.3.1 https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git "$BGUTIL_DIR"
 cd "$BGUTIL_DIR/server"
