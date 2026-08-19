@@ -164,8 +164,9 @@ YTDL_OPTIONS = {
     'noplaylist': True,
     'nocheckcertificate': True,
     'ignoreerrors': False,
-    'quiet': True,
-    'no_warnings': True,
+    'quiet': False,
+    'no_warnings': False,
+    'verbose': True,
     'default_search': 'ytsearch',
     'source_address': '0.0.0.0',
     'cookiefile': 'cookies.txt' if os.path.exists("cookies.txt") else None,
@@ -262,7 +263,7 @@ async def oynat(interaction: discord.Interaction, sarkici_veya_url: str):
 
     except Exception as e:
         print(f"⚠️ Genel oynatma hatası: {e}")
-        await interaction.followup.send(f"❌ Şarkı oynatılırken hata oluştu: `{e}`")
+        await interaction.followup.send(f"❌ Şarkı oynatılırken hata oluştu: `{e}`\n-# debug: player_client=web+android, format=best, pot={'var' if os.path.exists(os.path.join(BGUTIL_SERVER_HOME, 'build', 'main.js')) else 'yok'}")
 
 @bot.tree.command(name="dur", description="Çalan müziği durdurur ve kanaldan ayrılır.")
 async def dur(interaction: discord.Interaction):
