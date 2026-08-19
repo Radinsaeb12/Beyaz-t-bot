@@ -6,3 +6,4 @@ PyNaCl
 aiohttp
 static-ffmpeg
 bgutil-ytdlp-pot-provider
+davey
