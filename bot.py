@@ -1305,8 +1305,10 @@ class GamesCog(commands.Cog, name="Oyunlar"):
 # ════════════════════════════════════════════════════════════════════════════
 #  MUSIC COG  – yt-dlp + FFmpeg
 # ════════════════════════════════════════════════════════════════════════════
+COOKIE_PATH = "/etc/secrets/cookies.txt" if os.path.exists("/etc/secrets/cookies.txt") else ("cookies.txt" if os.path.exists("cookies.txt") else None)
+
 YTDL_OPTS: Dict[str, Any] = {
-    "format": "ba/b",
+    "format": "bestaudio/best",
     "noplaylist": True,
     "default_search": "ytsearch",
     "quiet": True,
@@ -1316,8 +1318,14 @@ YTDL_OPTS: Dict[str, Any] = {
     "retries": 5,
     "cachedir": False,
     "source_address": "0.0.0.0",
-    "cookiefile": "cookies.txt",
+    "extract_flat": False,
+    "youtube_include_dash_manifest": True,
+    "youtube_include_hls_manifest": True,
 }
+
+if COOKIE_PATH:
+    YTDL_OPTS["cookiefile"] = COOKIE_PATH
+
 FFMPEG_BEFORE = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin"
 FFMPEG_OPTIONS = "-vn"
 URL_RE = re.compile(r"^https?://", re.I)
