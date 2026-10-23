@@ -28,8 +28,7 @@ Setup:
   5. Invite the bot with the Administrator permission (needed to create/configure roles),
      move the bot's own integration role to the TOP of the role list, then run /setup-server.
 """
-import static_ffmpeg
-static_ffmpeg.add_paths()
+
 import asyncio
 import collections
 import copy
@@ -49,10 +48,15 @@ from pathlib import Path
 from typing import Any, Deque, Dict, List, Optional, Set, Tuple
 
 import aiohttp
+from aiohttp import web
 import discord
+import static_ffmpeg
 import yt_dlp
 from discord import app_commands
 from discord.ext import commands, tasks
+
+# Render / Linux ortamlari icin FFmpeg ikili dosyalarini PATH'e ekle
+static_ffmpeg.add_paths()
 
 try:  # optional .env support
     from dotenv import load_dotenv
@@ -66,6 +70,7 @@ except ImportError:  # pragma: no cover
 # ════════════════════════════════════════════════════════════════════════════
 TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
 PREFIX = os.getenv("BOT_PREFIX", "!")
+PORT = int(os.getenv("PORT", 10000))
 DATA_FILE = Path(os.getenv("DATA_FILE", "bot_data.json"))
 DEFAULT_YT_SOURCE = (os.getenv("YOUTUBE_CHANNEL_ID") or os.getenv("YOUTUBE_RSS_URL") or "").strip()
 
@@ -2287,6 +2292,19 @@ class AllInOneBot(commands.Bot):
         self.store = Store(DATA_FILE)
 
     async def setup_hook(self) -> None:
+        # --- RENDER / BULUT ICIN HTTP PING SUNUCUSU ---
+        async def handle_ping(request: web.Request) -> web.Response:
+            return web.Response(text="Bot aktif ve calisiyor!")
+
+        app = web.Application()
+        app.router.add_get("/", handle_ping)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", PORT)
+        await site.start()
+        log.info("Render HTTP sunucusu port %d uzerinde acildi.", PORT)
+        # ----------------------------------------------
+
         for cog_cls in (AdminCog, ChannelGuardCog, AntiSpamCog, GamesCog, MusicCog, VoiceRoomsCog,
                         YouTubeCog, WelcomeCog, AnnounceCog):
             try:
