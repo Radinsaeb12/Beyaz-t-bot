@@ -1305,7 +1305,17 @@ class GamesCog(commands.Cog, name="Oyunlar"):
 # ════════════════════════════════════════════════════════════════════════════
 #  MUSIC COG  – yt-dlp + FFmpeg
 # ════════════════════════════════════════════════════════════════════════════
-COOKIE_PATH = "/etc/secrets/cookies.txt" if os.path.exists("/etc/secrets/cookies.txt") else ("cookies.txt" if os.path.exists("cookies.txt") else None)
+import shutil
+
+COOKIE_PATH = None
+if os.path.exists("/etc/secrets/cookies.txt"):
+    try:
+        shutil.copyfile("/etc/secrets/cookies.txt", "/tmp/cookies.txt")
+        COOKIE_PATH = "/tmp/cookies.txt"
+    except Exception:
+        COOKIE_PATH = "/etc/secrets/cookies.txt"
+elif os.path.exists("cookies.txt"):
+    COOKIE_PATH = "cookies.txt"
 
 YTDL_OPTS: Dict[str, Any] = {
     "format": "bestaudio/best",
