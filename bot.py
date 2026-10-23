@@ -28,7 +28,8 @@ Setup:
   5. Invite the bot with the Administrator permission (needed to create/configure roles),
      move the bot's own integration role to the TOP of the role list, then run /setup-server.
 """
-
+import static_ffmpeg
+static_ffmpeg.add_paths()
 import asyncio
 import collections
 import copy
