@@ -1306,7 +1306,7 @@ class GamesCog(commands.Cog, name="Oyunlar"):
 #  MUSIC COG  – yt-dlp + FFmpeg
 # ════════════════════════════════════════════════════════════════════════════
 YTDL_OPTS: Dict[str, Any] = {
-    "format": "bestaudio/best/ba/b",
+    "format": "ba/b",
     "noplaylist": True,
     "default_search": "ytsearch",
     "quiet": True,
@@ -1317,11 +1317,6 @@ YTDL_OPTS: Dict[str, Any] = {
     "cachedir": False,
     "source_address": "0.0.0.0",
     "cookiefile": "cookies.txt",
-    "extractor_args": {
-        "youtube": {
-            "player_client": ["web", "mweb", "android"]
-        }
-    },
 }
 FFMPEG_BEFORE = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin"
 FFMPEG_OPTIONS = "-vn"
