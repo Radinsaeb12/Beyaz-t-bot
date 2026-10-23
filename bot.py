@@ -1316,6 +1316,7 @@ YTDL_OPTS: Dict[str, Any] = {
     "retries": 5,
     "cachedir": False,
     "source_address": "0.0.0.0",
+    "cookiefile": "cookies.txt",
     "extractor_args": {
         "youtube": {
             "player_client": ["android", "web_creator"]
