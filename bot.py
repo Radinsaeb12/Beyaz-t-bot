@@ -1803,9 +1803,8 @@ def get_cookie_file() -> Optional[str]:
     if os.path.exists("cookies.txt"):
         return "cookies.txt"
     return None
-
 YTDL_OPTS: Dict[str, Any] = {
-    "format": "bestaudio/best",
+    "format": "bestaudio*/best*",
     "noplaylist": True,
     "default_search": "ytsearch",
     "quiet": True,
@@ -1815,30 +1814,81 @@ YTDL_OPTS: Dict[str, Any] = {
     "retries": 5,
     "cachedir": False,
     "source_address": "0.0.0.0",
+    "geo_bypass": True,
 }
 
 FFMPEG_BEFORE = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin"
 FFMPEG_OPTIONS = "-vn"
 URL_RE = re.compile(r"^https?://", re.I)
 
+def _pick_stream_url(info: Dict[str, Any]) -> Optional[str]:
+    """Doğrudan url yoksa requested_formats veya formats listesinden ses akışını seçer."""
+    if info.get("url"):
+        return info["url"]
+    for f in info.get("requested_formats") or []:
+        if f.get("url") and f.get("acodec") not in (None, "none"):
+            return f["url"]
+    audio_fmts = [
+        f for f in (info.get("formats") or [])
+        if f.get("url")
+        and f.get("acodec") not in (None, "none")
+        and f.get("protocol") != "mhtml"
+    ]
+    if audio_fmts:
+        return audio_fmts[-1]["url"]
+    return None
+
 def _ytdl_extract(query: str) -> Dict[str, Any]:
     target = query if URL_RE.match(query) else f"ytsearch1:{query}"
-    opts = dict(YTDL_OPTS)
     cpath = get_cookie_file()
+
+    # Sırayla denenecek istemci profilleri (SABR ve format kısıtlamalarını aşmak için)
+    attempts: List[Dict[str, Any]] = []
+
+    # 1. Deneme: Çerezsiz android_vr / ios (Format hatasına en dayanıklı yöntem)
+    attempts.append({
+        **YTDL_OPTS,
+        "extractor_args": {"youtube": {"player_client": ["android_vr", "ios", "tv_embedded"]}},
+    })
+
+    # 2. Deneme: Çerez varsa mweb / tv_embedded ile (Yaş kısıtlı veya bot korumalı IP'ler için)
     if cpath:
-        opts["cookiefile"] = cpath
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(target, download=False)
-    if info is None:
-        raise RuntimeError("Sonuç bulunamadı.")
-    if "entries" in info:
-        entries = [e for e in info["entries"] if e]
-        if not entries:
-            raise RuntimeError("Sonuç bulunamadı.")
-        info = entries[0]
-    if not info.get("url"):
-        raise RuntimeError("Ses akışı çözümlenemedi.")
-    return info
+        attempts.append({
+            **YTDL_OPTS,
+            "cookiefile": cpath,
+            "extractor_args": {"youtube": {"player_client": ["mweb", "tv_embedded", "web_creator"]}},
+        })
+        # 3. Deneme: Çerezli esnek yedek
+        attempts.append({
+            **YTDL_OPTS,
+            "format": "ba/b/best*",
+            "cookiefile": cpath,
+        })
+
+    last_err: Optional[Exception] = None
+    for opts in attempts:
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(target, download=False)
+            if not info:
+                continue
+            if "entries" in info:
+                entries = [e for e in info["entries"] if e]
+                if not entries:
+                    continue
+                info = entries[0]
+
+            stream_url = _pick_stream_url(info)
+            if stream_url:
+                info["url"] = stream_url
+                return info
+        except Exception as exc:
+            last_err = exc
+            continue
+
+    if last_err:
+        raise last_err
+    raise RuntimeError("Uygun ses formatı bulunamadı.")
 
 async def ytdl_extract(query: str) -> Dict[str, Any]:
     loop = asyncio.get_running_loop()
