@@ -1,5 +1,5 @@
 discord.py
-yt-dlp
+yt-dlp[default]
 static_ffmpeg
 aiohttp
 python-dotenv
