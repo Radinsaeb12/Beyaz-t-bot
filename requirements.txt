@@ -3,3 +3,5 @@ yt-dlp
 static_ffmpeg
 aiohttp
 python-dotenv
+PyNaCl
+davey
