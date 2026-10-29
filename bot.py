@@ -1924,9 +1924,6 @@ def _ytdl_extract(query: str) -> Dict[str, Any]:
 async def ytdl_extract(query: str) -> Dict[str, Any]:
     loop = asyncio.get_running_loop()
     return await asyncio.wait_for(loop.run_in_executor(None, _ytdl_extract, query), timeout=60)
-    loop = asyncio.get_running_loop()
-    return await asyncio.wait_for(loop.run_in_executor(None, _ytdl_extract, query), timeout=60)
-
 @dataclass
 class Track:
     title: str
