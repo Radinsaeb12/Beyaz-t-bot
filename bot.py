@@ -1790,83 +1790,114 @@ class GamesCog(commands.Cog, name="Oyunlar"):
 # ════════════════════════════════════════════════════════════════════════════
 #  MUSIC COG  – yt-dlp + FFmpeg + Ephemeral Control Panel
 # ════════════════════════════════════════════════════════════════════════════
+import tempfile
+
+class _YtdlpLogger:
+    def debug(self, msg: str) -> None:
+        pass
+    def info(self, msg: str) -> None:
+        pass
+    def warning(self, msg: str) -> None:
+        log.warning("[yt-dlp] %s", msg)
+    def error(self, msg: str) -> None:
+        log.error("[yt-dlp] %s", msg)
+
 def get_cookie_file() -> Optional[str]:
-    secret_path = "/etc/secrets/cookies.txt"
-    tmp_path = "/tmp/cookies.txt"
-    if os.path.exists(secret_path):
-        try:
-            if not os.path.exists(tmp_path) or os.path.getmtime(secret_path) > os.path.getmtime(tmp_path):
-                shutil.copyfile(secret_path, tmp_path)
-            return tmp_path
-        except Exception:
-            return secret_path
-    if os.path.exists("cookies.txt"):
-        return "cookies.txt"
-    return None
+    """Orijinal cookies.txt dosyasının yt-dlp tarafından bozulmasını önlemek için her istekte temiz kopya oluşturur."""
+    candidates = ["/etc/secrets/cookies.txt", "cookies.txt"]
+    src = next((p for p in candidates if os.path.exists(p) and os.path.getsize(p) > 0), None)
+    if not src:
+        return None
+    work_path = os.path.join(tempfile.gettempdir(), "ytdlp_working_cookies.txt")
+    try:
+        shutil.copyfile(src, work_path)
+        return work_path
+    except OSError:
+        return src
+
 YTDL_OPTS: Dict[str, Any] = {
-    "format": "bestaudio*/best*",
+    "format": "bestaudio/bestaudio*/best/best*",
     "noplaylist": True,
     "default_search": "ytsearch",
     "quiet": True,
-    "no_warnings": True,
+    "no_warnings": False,
+    "logger": _YtdlpLogger(),
     "skip_download": True,
     "socket_timeout": 15,
-    "retries": 5,
+    "retries": 3,
     "cachedir": False,
     "source_address": "0.0.0.0",
     "geo_bypass": True,
+    "nocheckcertificate": True,
+    # YouTube JS imza şifrelemesini (EJS) çözmek için Deno ve Node.js'i aktif eder
+    "js_runtimes": {"deno": {}, "node": {}, "bun": {}, "quickjs": {}},
+    "remote_components": ["ejs:github"],
 }
 
-FFMPEG_BEFORE = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin"
+FFMPEG_BEFORE = (
+    '-user_agent "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+    'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15" '
+    '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin'
+)
 FFMPEG_OPTIONS = "-vn"
 URL_RE = re.compile(r"^https?://", re.I)
 
 def _pick_stream_url(info: Dict[str, Any]) -> Optional[str]:
-    """Doğrudan url yoksa requested_formats veya formats listesinden ses akışını seçer."""
-    if info.get("url"):
+    """Storyboard (mhtml) ve sessiz video formatlarını eleyerek geçerli ses/HLS akışını seçer."""
+    if info.get("url") and info.get("protocol") != "mhtml":
         return info["url"]
     for f in info.get("requested_formats") or []:
-        if f.get("url") and f.get("acodec") not in (None, "none"):
+        if f.get("url") and f.get("acodec") != "none" and f.get("protocol") != "mhtml":
             return f["url"]
-    audio_fmts = [
+    valid_fmts = [
         f for f in (info.get("formats") or [])
         if f.get("url")
-        and f.get("acodec") not in (None, "none")
+        and f.get("acodec") != "none"
         and f.get("protocol") != "mhtml"
+        and f.get("ext") != "mhtml"
     ]
-    if audio_fmts:
-        return audio_fmts[-1]["url"]
+    if valid_fmts:
+        # Önce saf ses akışlarını, yoksa birleşik (HLS/mp4) akışı seç
+        pure_audio = [f for f in valid_fmts if f.get("vcodec") == "none"]
+        return (pure_audio[-1] if pure_audio else valid_fmts[-1])["url"]
     return None
 
 def _ytdl_extract(query: str) -> Dict[str, Any]:
     target = query if URL_RE.match(query) else f"ytsearch1:{query}"
-    cpath = get_cookie_file()
+    has_cookies = any(os.path.exists(p) and os.path.getsize(p) > 0 for p in ("/etc/secrets/cookies.txt", "cookies.txt"))
 
-    # Sırayla denenecek istemci profilleri (SABR ve format kısıtlamalarını aşmak için)
-    attempts: List[Dict[str, Any]] = []
+    attempts: List[Tuple[str, Dict[str, Any]]] = []
 
-    # 1. Deneme: Çerezsiz android_vr / ios (Format hatasına en dayanıklı yöntem)
-    attempts.append({
-        **YTDL_OPTS,
-        "extractor_args": {"youtube": {"player_client": ["android_vr", "ios", "tv_embedded"]}},
-    })
+    if has_cookies:
+        # 1. Deneme: Çerez + web_safari & tv (SABR engelini HLS/TV akışıyla aşar)
+        attempts.append((
+            "cookies+safari_tv",
+            {
+                **YTDL_OPTS,
+                "extractor_args": {"youtube": {"player_client": ["web_safari", "tv", "web"]}},
+            },
+        ))
+        # 2. Deneme: Çerez + varsayılan yt-dlp istemcileri (EJS/Deno ile)
+        attempts.append((
+            "cookies+default",
+            {**YTDL_OPTS},
+        ))
 
-    # 2. Deneme: Çerez varsa mweb / tv_embedded ile (Yaş kısıtlı veya bot korumalı IP'ler için)
-    if cpath:
-        attempts.append({
+    # 3. Deneme: Çerezsiz mobil/safari istemcileri (çerez süresi dolmuşsa yedek olarak devreye girer)
+    attempts.append((
+        "nocookies+vr_safari",
+        {
             **YTDL_OPTS,
-            "cookiefile": cpath,
-            "extractor_args": {"youtube": {"player_client": ["mweb", "tv_embedded", "web_creator"]}},
-        })
-        # 3. Deneme: Çerezli esnek yedek
-        attempts.append({
-            **YTDL_OPTS,
-            "format": "ba/b/best*",
-            "cookiefile": cpath,
-        })
+            "extractor_args": {"youtube": {"player_client": ["android_vr", "web_safari", "tv"]}},
+        },
+    ))
 
-    last_err: Optional[Exception] = None
-    for opts in attempts:
+    errors: List[str] = []
+    for label, opts in attempts:
+        if label.startswith("cookies"):
+            cpath = get_cookie_file()
+            if cpath:
+                opts["cookiefile"] = cpath
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(target, download=False)
@@ -1883,14 +1914,16 @@ def _ytdl_extract(query: str) -> Dict[str, Any]:
                 info["url"] = stream_url
                 return info
         except Exception as exc:
-            last_err = exc
+            err_txt = short_err(exc, 160)
+            log.warning("yt-dlp denemesi başarısız [%s]: %s", label, err_txt)
+            errors.append(f"[{label}] {err_txt}")
             continue
 
-    if last_err:
-        raise last_err
-    raise RuntimeError("Uygun ses formatı bulunamadı.")
+    raise RuntimeError(" | ".join(errors) if errors else "Uygun ses formatı bulunamadı.")
 
 async def ytdl_extract(query: str) -> Dict[str, Any]:
+    loop = asyncio.get_running_loop()
+    return await asyncio.wait_for(loop.run_in_executor(None, _ytdl_extract, query), timeout=60)
     loop = asyncio.get_running_loop()
     return await asyncio.wait_for(loop.run_in_executor(None, _ytdl_extract, query), timeout=60)
 
